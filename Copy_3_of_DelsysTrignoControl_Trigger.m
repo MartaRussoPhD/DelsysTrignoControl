@@ -296,9 +296,9 @@ end
                     updateAuxPlot(plotHandlesAUX,auxDataArray,auxSampleCounter,auxPlotBuffer,downsampleRate);
                     
                     updateEmgPlot(plotHandlesEMG,emgDataArray,emgSampleCounter,emgPlotBuffer,downsampleRate);
-                    emgDataArrayToSave = nan(totalSamples(1),numChannels(1),dataType);
+                    emgDataArrayToSave = zeros(totalSamples(1),numChannels(1),dataType);
                     emgSampleCounterToSave = 0;
-                    auxDataArrayToSave = nan(totalSamples(2),numChannels(2),dataType);
+                    auxDataArrayToSave = zeros(totalSamples(2),numChannels(2),dataType);
                     auxSampleCounterToSave = 0;
                     
                     sendTCP('EMGStarted');
@@ -342,9 +342,9 @@ end
                         %                         save_toc(blocknum) = toc
                         
                         % toc
-                        emgDataArrayToSave = nan(totalSamples(1),numChannels(1),dataType);
+                        emgDataArrayToSave = zeros(totalSamples(1),numChannels(1),dataType);
                         emgSampleCounterToSave = 0;
-                        auxDataArrayToSave = nan(totalSamples(2),numChannels(2),dataType);
+                        auxDataArrayToSave = zeros(totalSamples(2),numChannels(2),dataType);
                         auxSampleCounterToSave = 0;
                         
                         EMGStarted = 0;
@@ -607,8 +607,8 @@ end
         %Output data type
         dataType = 'single';
         %EMG Data Port
-        emgDataArray = nan(totalSamples(1),numChannels(1),dataType);
-        emgDataArrayToSave = nan(totalSamples(1),numChannels(1),dataType);
+        emgDataArray = zeros(totalSamples(1),numChannels(1),dataType);
+        emgDataArrayToSave = zeros(totalSamples(1),numChannels(1),dataType);
         emgBytesToRead = bytesToRead(1);
         emgSampleCounter = 0;
         emgSampleCounterToSave = 0;
@@ -616,8 +616,8 @@ end
         %             data{itrial} = zeros(totalSamples(1),numChannels(1),dataType);
         %         end
         %AUX Data Port
-        auxDataArray = nan(totalSamples(2),numChannels(2),dataType);
-        auxDataArrayToSave = nan(totalSamples(2),numChannels(2),dataType);
+        auxDataArray = zeros(totalSamples(2),numChannels(2),dataType);
+        auxDataArrayToSave = zeros(totalSamples(2),numChannels(2),dataType);
         auxBytesToRead = bytesToRead(2);
         auxSampleCounter = 0;
         auxSampleCounterToSave = 0;
@@ -952,7 +952,7 @@ fprintf(commPort, sprintf('TRIGGER START ON\r\n\r'));
 pause(pauseLength);
 fread(commPort,commPort.BytesAvailable);
 
-fprintf(commPort, sprintf('TRIGGER STOP OFF\r\n\r'));
+fprintf(commPort, sprintf('TRIGGER STOP ON\r\n\r'));
 pause(pauseLength);
 fread(commPort,commPort.BytesAvailable);
 
