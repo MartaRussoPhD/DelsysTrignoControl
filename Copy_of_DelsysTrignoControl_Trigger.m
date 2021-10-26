@@ -40,8 +40,8 @@ clear all hidden;
 %IP of the host computer running the Trigno Control Utility + scheduled
 %run time (in seconds)
 if nargin == 0
-    hostIP = 'localhost';
-    runTime = 10;
+    hostIP = 'localhost'; %'localhost'
+    runTime = 60;
     type = 'statemachine'; %'gui'
 elseif nargin == 1
     hostIP = varargin{1};
@@ -74,13 +74,23 @@ global emgPlotBuffer;
 global downsampleRate;
 global figureHandleEMG;
 global dataType;
-
+global samplesPerFrame;
+global frameInterval;
 
 % data = {};
 global emgDataArrayToSave;
 global emgSampleCounterToSave;
-global trialnum;
+global blocknum;
 global foldername;
+
+global plotHandlesAUX;
+global auxDataArray;
+global auxDataArrayToSave;
+global auxSampleCounter;
+global auxPlotBuffer;
+global figureHandleAUX;
+global auxBytesToRead;
+global auxSampleCounterToSave;
 
 global tcpipServer;
 global EMGStarted;
@@ -156,7 +166,7 @@ switch type
 end
 
 %%
-% trialnum = 1;
+% blocknum = 1;
     function StateMachine(varargin)
         EMGStarted = 0;
         pauseLength = 3.0; %seconds
@@ -183,14 +193,14 @@ end
             switch message
                 
                 case 'socket is sent'
-                    state = 'readyForTrial';
+                    state = 'readyForBlock';
                     
                 case 'start emg'
-                    state = 'TrialStarted';
+                    state = 'BlockStarted';
                     startClbk([],[],commPort);
                     
                 case 'stop emg'
-                    state = 'endTrial';
+                    state = 'endBlock';
                     stopClbk([],[],commPort);
                     
                 case 'end session'
@@ -214,55 +224,57 @@ end
                 case  'readyForCommunication'
                     disp('readyForCommunication')
                     
-                case 'readyForTrial'
+                case 'readyForBlock'
                     %                     switch message
                     %                         case 'end session'
                     %                              state = 'endSession';
                     %                         otherwise
-                    sendTCP('readyForTrial');
-                    state = 'waitForTrial';
+                    sendTCP('readyForBlock');
+                    state = 'waitForBlock';
                     
-                    disp('readyForTrial')
+                    disp('readyForBlock')
                     
                     %                     end
-                case 'waitForTrial'
+                case 'waitForBlock'
                     %                     message
                     if length(message) == 11
-                        trialnum = str2num(message(11));
+                        blocknum = str2num(message(11));
                         trialmessage = message(1:9);
                     elseif length(message) == 12
-                        trialnum = str2num(message(11:12));
+                        blocknum = str2num(message(11:12));
                         trialmessage = message(1:9);
                     else
                         trialmessage = '';
                     end
                     
                     switch trialmessage
-                        case 'trial num'
+                        case 'Block num'
                             
-                            filename = sprintf('%s\\Trial_%02i.mat',foldername,trialnum);
+                            filename = sprintf('%s\\Trial_%02i.mat',foldername,blocknum);
+                                                        filenameAux = sprintf('%s\\Trial_Acc_%02i.mat',foldername,blocknum);
+
                             %                             saveDataFile = fopen(filename,'w');
                             
                             tt = datetime;
                             t = datestr(tt,'HH-MM-ss.FFF');
                             
-                            fprintf(saveLogFile,'trial %02i started %s\t',trialnum,t);
+                            fprintf(saveLogFile,'trial %02i started %s\t',blocknum,t);
                             
                             %                              flushinput(commPort);
                             %         flushoutput(commPort);
                             %arm the system
-%                             tic
+                            %                             tic
                             startAcquisition(commPort);
                             
                             while commPort.BytesAvailable == 0
                                 disp('wait for bytes')
                                 
                             end
-%                             start_toc(trialnum) = toc
+                            %                             start_toc(blocknum) = toc
                             startFlag = fread(commPort,commPort.BytesAvailable);
                             startFlag = strtrim(char(startFlag'))
                             if strcmp(startFlag,'OK')
-                                sendTCP('TrialReceived');
+                                sendTCP('BlockReceived');
                                 state = 'waitForStartRecording';
                                 drawnow;
                             end
@@ -270,20 +282,25 @@ end
                     
                 case 'waitForStartRecording'
                     updateEmgPlot(plotHandlesEMG,emgDataArray,emgSampleCounter,emgPlotBuffer,downsampleRate);
+                    updateAuxPlot(plotHandlesAUX,auxDataArray,auxSampleCounter,auxPlotBuffer,downsampleRate);
                     
                     disp('waitForStart')
                     
                     
-                case 'TrialStarted'
+                case 'BlockStarted'
                     %         start emg recording
                     
                     %                     if EMGStarted
                     
                     disp('EMGStarted')
+                    updateAuxPlot(plotHandlesAUX,auxDataArray,auxSampleCounter,auxPlotBuffer,downsampleRate);
                     
                     updateEmgPlot(plotHandlesEMG,emgDataArray,emgSampleCounter,emgPlotBuffer,downsampleRate);
-                    emgDataArrayToSave = zeros(totalSamples(1),numChannels(1),dataType);
+                    emgDataArrayToSave = nan(totalSamples(1),numChannels(1),dataType);
                     emgSampleCounterToSave = 0;
+                    auxDataArrayToSave = nan(totalSamples(2),numChannels(2),dataType);
+                    auxSampleCounterToSave = 0;
+                    
                     sendTCP('EMGStarted');
                     tt = datetime;
                     t = datestr(tt,'HH-MM-ss.FFF');
@@ -296,42 +313,47 @@ end
                     %                     end
                 case 'waitForStop'
                     updateEmgPlot(plotHandlesEMG,emgDataArray,emgSampleCounter,emgPlotBuffer,downsampleRate);
+                    updateAuxPlot(plotHandlesAUX,auxDataArray,auxSampleCounter,auxPlotBuffer,downsampleRate);
                     
-                case 'endTrial'
-                    %                     data{trialnum} = emgDataArrayToSave;
+                case 'endBlock'
+                    %                     data{blocknum} = emgDataArrayToSave;
                     %                     fprintf(saveDataFile,'%6.10f\t %6.10f\t %6.10f\t %6.10f\t %6.10f\t %6.10f\t %6.10f\t %6.10f\t %6.10f\t %6.10f\t %6.10f\t %6.10f\t %6.10f\t %6.10f\t %6.10f\t %6.10f\n',emgDataArrayToSave);
                     % tic
                     % dlmwrite(filename,emgDataArrayToSave);
                     % filename
-%                     tic
+                    %                     tic
                     stopAcquisition(commPort);
                     
                     while commPort.BytesAvailable == 0
                         disp('wait for bytes')
                         
                     end
-%                     stop_toc(trialnum) = toc
+                    %                     stop_toc(blocknum) = toc
                     
                     stopFlag = fread(commPort,commPort.BytesAvailable);
                     stopFlag = strtrim(char(stopFlag'))
                     if strcmp(stopFlag,'OK')
-                        state =  'readyForTrial';
+                        state =  'readyForBlock';
                         
-%                         tic
+                        %                         tic
                         save(filename,'emgDataArrayToSave');
-%                         save_toc(trialnum) = toc
+                        save(filenameAux,'auxDataArrayToSave');
+                        disp(filenameAux);
+                        %                         save_toc(blocknum) = toc
                         
                         % toc
-                        emgDataArrayToSave = zeros(totalSamples(1),numChannels(1),dataType);
-                        %                     emgDataArray = zeros(totalSamples(1),numChannels(1),dataType);
+                        emgDataArrayToSave = nan(totalSamples(1),numChannels(1),dataType);
                         emgSampleCounterToSave = 0;
+                        auxDataArrayToSave = nan(totalSamples(2),numChannels(2),dataType);
+                        auxSampleCounterToSave = 0;
+                        
                         EMGStarted = 0;
                         tt = datetime;
                         t = datestr(tt,'HH-MM-ss.FFF');
                         %                     tic
-                        fprintf(saveLogFile,'endTrial %s\n',t);
+                        fprintf(saveLogFile,'endBlock %s\n',t);
                         %                     toc
-                        disp('trial is over');
+                        disp('block is over');
                         sendTCP('EMGStopped');
                         
                     end
@@ -348,7 +370,7 @@ end
     function createTCP(varargin)
         %enable communication with Unity
         %same computer as unity
-%                 tcpipServer = tcpip('127.0.0.1',55000,'NetworkRole','Server','Timeout',100);
+        %                 tcpipServer = tcpip('127.0.0.1',55000,'NetworkRole','Server','Timeout',100);
         % from optitrack computer to unity
         tcpipServer = tcpip('192.168.104.144',55000,'NetworkRole','Server','Timeout',100);
         fopen(tcpipServer);
@@ -387,7 +409,7 @@ end
         
         fclose(tcpipServer);
         
-        closeConnections(figureHandleEMG,0,emgDataPort,auxDataPort,...
+        closeConnections(figureHandleEMG,figureHandleAUX,0,emgDataPort,auxDataPort,...
             legacyEmgDataPort,legacyAuxDataPort,commPort);
     end
 
@@ -395,17 +417,18 @@ end
         %         createTCP();
         %                 [commPort, numChannels] = configureTCPIPconnection();
         
-        figureHandleEMG =buildFigure(emgDataPort,auxDataPort,...
+        [figureHandleEMG,figureHandleAUX] = buildFigure(emgDataPort,auxDataPort,...
             legacyEmgDataPort,legacyAuxDataPort,commPort);
         [samplesPerFrame, frameInterval] = openConnection();
         [emgDataArray,emgBytesToRead,emgSampleCounter] = configureDataManager(samplesPerFrame, frameInterval);
         [emgPlotBuffer,downsampleRate] = configureDataport(emgBytesToRead,samplesPerFrame,frameInterval,fcnMode);
-        %         configureAuxDataport(fcnMode);
+        configureAuxDataport(fcnMode);
         %         configureLegacyDataport();
         %         configureLegacyAuxDataport();
         
         %         pause(5);
         plotHandlesEMG = buildPlotAxes(figureHandleEMG,emgPlotBuffer);
+        plotHandlesAUX = buildPlotAuxAxes(figureHandleAUX,auxPlotBuffer);
         
         dataStream();
         %Extended pause to allow axes to render before streaming
@@ -480,7 +503,12 @@ end
         commPort = tcpip(hostIP, 50040);
         
         %Channel numbers of data ports
-        numChannels = ...
+%         numChannels = ...
+%             [16;... %EMG Data port
+%             9;... %AUX Data port
+%             16;...  %Legacy EMG Data port
+%             48];    %Legacy AUX Data port
+         numChannels = ...
             [16;... %EMG Data port
             144;... %AUX Data port
             16;...  %Legacy EMG Data port
@@ -529,22 +557,31 @@ end
 
 
 %% BUILD FIGURE AND AXES FOR PLOTTING INCOMING DATA
-    function [figureHandleEMG] = buildFigure(emgDataPort,auxDataPort,...
+    function [figureHandleEMG,figureHandleAUX] = buildFigure(emgDataPort,auxDataPort,...
             legacyEmgDataPort,legacyAuxDataPort,commPort)
         
         
         %Build figure with callback for closing
         figureHandleEMG = figure('Name','EMG Data','Numbertitle','off',...
+            'Position',[50 200 750 750] ,...
+            'CloseRequestFcn',{@closeConnections,emgDataPort,auxDataPort,...
+            legacyEmgDataPort,legacyAuxDataPort,commPort});
+        
+        %Build figure with callback for closing
+        figureHandleAUX = figure('Name','ACC Data','Numbertitle','off',...
+            'Position',[850 200 750 750] ,...
             'CloseRequestFcn',{@closeConnections,emgDataPort,auxDataPort,...
             legacyEmgDataPort,legacyAuxDataPort,commPort});
     end
+
+
 %% OPEN COMMAND PORT AND CONFIGURE TCU
     function [samplesPerFrame, frameInterval] = openConnection()
         %Open Command port connection
         try
             fopen(commPort);
         catch
-            closeConnections(figureHandleEMG,0,emgDataPort,auxDataPort,...
+            closeConnections(figureHandleEMG,figureHandleAUX,0,emgDataPort,auxDataPort,...
                 legacyEmgDataPort,legacyAuxDataPort,commPort);
             error(['CONNECTION ERROR: Please start the Delsys '...
                 'Trigno Control Application and try again']);
@@ -570,8 +607,8 @@ end
         %Output data type
         dataType = 'single';
         %EMG Data Port
-        emgDataArray = zeros(totalSamples(1),numChannels(1),dataType);
-        emgDataArrayToSave = zeros(totalSamples(1),numChannels(1),dataType);
+        emgDataArray = nan(totalSamples(1),numChannels(1),dataType);
+        emgDataArrayToSave = nan(totalSamples(1),numChannels(1),dataType);
         emgBytesToRead = bytesToRead(1);
         emgSampleCounter = 0;
         emgSampleCounterToSave = 0;
@@ -579,9 +616,11 @@ end
         %             data{itrial} = zeros(totalSamples(1),numChannels(1),dataType);
         %         end
         %AUX Data Port
-        auxDataArray = zeros(totalSamples(2),numChannels(2),dataType);
+        auxDataArray = nan(totalSamples(2),numChannels(2),dataType);
+        auxDataArrayToSave = nan(totalSamples(2),numChannels(2),dataType);
         auxBytesToRead = bytesToRead(2);
         auxSampleCounter = 0;
+        auxSampleCounterToSave = 0;
         
         %Legacy EMG Data Port
         legacyEmgDataArray = zeros(totalSamples(3),numChannels(3),dataType);
@@ -662,6 +701,14 @@ end
         auxDataPort.BytesAvailableFcnCount = auxBytesToRead;
         %     auxDataPort.BytesAvailableFcnCount = 4;
         
+        
+        %aux plot buffer
+        downsampleRate = 5;
+        %Plot data buffer size
+        plotBuffer = 5; %s
+        auxPlotBuffer = ceil(plotBuffer * samplesPerFrame(2) / ...
+            (frameInterval * downsampleRate));
+        
         function readDataPortAUX(~,~)
             
             %Check that enough bytes are available to read
@@ -683,6 +730,11 @@ end
             rowsToAppend = (1:r) + auxSampleCounter;
             auxDataArray(rowsToAppend,:) = newData;
             auxSampleCounter = auxSampleCounter + r;
+            
+            %Append data to existing data array and increment sample counter
+            rowsToAppendToSave = (1:r) + auxSampleCounterToSave;
+            auxDataArrayToSave(rowsToAppendToSave,:) = newData;
+            auxSampleCounterToSave = auxSampleCounterToSave + r;
             
         end
     end
@@ -786,6 +838,37 @@ end
         
     end
 
+%% UPDATE PLOT
+
+    function updateAuxPlot(plotHandlesAUX,auxDataArray,auxSampleCounter, auxPlotBuffer,downsampleRate)
+        
+        %Check amount of existing data
+        if auxSampleCounter >= (auxPlotBuffer*downsampleRate)
+            %Use most recent data to fill plot buffer
+            
+            plotIdx = (1:downsampleRate:(auxPlotBuffer*downsampleRate)) + ...
+                (auxSampleCounter - (auxPlotBuffer*downsampleRate) - ...
+                rem(auxSampleCounter,downsampleRate));
+        else
+            %Not enough data to fill plot buffer
+            
+            plotIdx = 1:downsampleRate:(auxSampleCounter - ...
+                rem(auxSampleCounter,downsampleRate));
+        end
+        
+        %Update plots
+        for ii = 1:9:size(plotHandlesAUX,1)
+           
+            plotHandlesAUX(ii).YData = auxDataArray(plotIdx,ii);
+            plotHandlesAUX(ii+1).YData = auxDataArray(plotIdx,ii+1);
+            plotHandlesAUX(ii+2).YData = auxDataArray(plotIdx,ii+2);
+
+                                  
+        end
+        
+        drawnow;
+        
+    end
 
 %% START DATA STREAM
     function [] = dataStream()
@@ -795,13 +878,13 @@ end
         
         try
             fopen(emgDataPort);
-            %fopen(auxDataPort);
+            fopen(auxDataPort);
             
             
             %         fopen(legacyEmgDataPort);
             %         fopen(legacyAuxDataPort);
         catch
-            closeConnections(figureHandleEMG,0,emgDataPort,auxDataPort,...
+            closeConnections(figureHandleEMG,figureHandleAUX,0,emgDataPort,auxDataPort,...
                 legacyEmgDataPort,legacyAuxDataPort,commPort);
             error(['CONNECTION ERROR: Please start the Delsys '...
                 'Trigno Control Application and try again']);
@@ -1010,23 +1093,89 @@ end
 
 end
 
+%% LOCAL FUNCTION FOR BUILDING PLOT AXES
+
+function plotHandles = buildPlotAuxAxes(figureHandle,emgPlotBuffer)
+
+%Make figure active
+figure(figureHandle);
+
+%EMG axis + plot handle preallocation
+numChannels = 16;
+% numChannels = 1;
+
+axesHandles = gobjects(numChannels,1);
+plotHandles = gobjects(numChannels*9,1);
+
+for ii = 1:numChannels
+    
+    %Create axis
+    axesHandles(ii) = subplot(4,4,ii);
+    %         axesHandles(ii) = subplot(1,1,1);
+    
+    %Set trace parameters
+    hold on
+    plotHandles(ii*9-8) = plot(axesHandles(ii),0,'-',...
+        'LineWidth',1,...
+        'Color',[1 0 0]);
+    plotHandles(ii*9-7) = plot(axesHandles(ii),0,'-',...
+        'LineWidth',1,...
+        'Color',[0 1 0]);
+    plotHandles(ii*9-6) = plot(axesHandles(ii),0,'-',...
+        'LineWidth',1,...
+        'Color',[0 0 1]);
+    hold off
+    
+    %Set axis parameters
+    axesHandles(ii).YGrid = 'on';
+    axesHandles(ii).XGrid = 'on';
+    axesHandles(ii).Color = [.15 .15 .15];
+%     axesHandles(ii).YLim = [-.003 .003];
+    axesHandles(ii).YLimMode = 'manual';
+    axesHandles(ii).XLim = [1 emgPlotBuffer];
+    axesHandles(ii).XLimMode = 'manual';
+    ylabel(axesHandles(ii),'V');
+    xlabel(axesHandles(ii),'Samples');
+    
+    if mod(ii,4) == 1
+        ylabel(axesHandles(ii),'m/s^2');
+    else
+        axesHandles(ii).YTickLabel = '';
+        ylabel(axesHandles(ii),'');
+    end
+    
+    if ii > 12
+        xlabel(axesHandles(ii),'Samples');
+    else
+        axesHandles(ii).XTickLabel = '';
+        xlabel(axesHandles(ii),'');
+    end
+    
+    title(sprintf('EMG Ch. %i', ii));
+    
+end
+
+%     %To enable linked zoom
+%     linkaxes(axesHandles);
+
+end
 %% LOCAL FUNCTION FOR CLOSING ALL TIMERS + TCP/IP OBJECTS
 
-function closeConnections(figureHandle,~,...
+function closeConnections(figureHandle,figureHandle2,~,...
     emgPort,auxPort,legacyEmgPort,legacyAuxPort,commPort)
 
 
 %Close all open ports
 if isvalid(emgPort)
     fclose(emgPort);
-    %     delete(emgPort);
-    %     clear emgPort;
+%         delete(emgPort);
+%         clear emgPort;
 end
-% if isvalid(auxPort)
-%     fclose(auxPort);
+if isvalid(auxPort)
+    fclose(auxPort);
 %     delete(auxPort);
 %     clear auxPort;
-% end
+end
 % if isvalid(legacyEmgPort)
 %     fclose(legacyEmgPort);
 %     delete(legacyEmgPort);
@@ -1039,13 +1188,14 @@ end
 % end
 if isvalid(commPort)
     fclose(commPort);
-    %     delete(commPort);
-    %     clear commPort;
+%         delete(commPort);
+%         clear commPort;
     
 end
 
 %Close figure window
 delete(figureHandle);
+delete(figureHandle2);
 
 end
 

@@ -20,7 +20,7 @@
 % FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 % DEALINGS IN THE SOFTWARE.
 
-function [] = DelsysTrignoControl_Trigger(varargin)
+function [] = DelsysTrignoControl_Trigger_Block_Acc(varargin)
 %% DELSYSTRIGNOCONTROL streams data from the Delsys Trigno Control Utility
 %
 %   Optional inputs:
